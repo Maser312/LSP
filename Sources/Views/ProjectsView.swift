@@ -1,4 +1,6 @@
+import QuickLook
 import SwiftUI
+import UIKit
 
 struct ProjectsView: View {
     @State private var projects: [ScanProject] = []
@@ -12,41 +14,32 @@ struct ProjectsView: View {
             } else if let errorMessage {
                 ContentUnavailableView("Не удалось открыть библиотеку", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
             } else if projects.isEmpty {
-                ContentUnavailableView(
-                    "Пока нет сканов",
-                    systemImage: "cube.transparent",
-                    description: Text("Создай сканирование, сохрани модель, и она появится здесь.")
-                )
+                ContentUnavailableView("Пока нет сканов", systemImage: "cube.transparent", description: Text("Создай сканирование, сохрани модель, и она появится здесь."))
             } else {
-                List {
-                    ForEach(projects) { project in
-                        NavigationLink {
-                            ProjectDetailView(project: project)
-                        } label: {
-                            ProjectRow(project: project)
-                        }
-                        .listRowBackground(Color(uiColor: .secondarySystemBackground))
-                        .swipeActions {
-                            Button(role: .destructive) {
-                                delete(project)
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
+                        ForEach(projects) { project in
+                            NavigationLink {
+                                ProjectDetailView(project: project)
                             } label: {
-                                Label("Удалить", systemImage: "trash")
+                                ProjectCard(project: project)
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button(role: .destructive) { delete(project) } label: {
+                                    Label("Удалить", systemImage: "trash")
+                                }
                             }
                         }
                     }
+                    .padding()
                 }
-                .listStyle(.insetGrouped)
             }
         }
         .navigationTitle("Мои сканы")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    reload()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .accessibilityLabel("Обновить библиотеку")
+                Button(action: reload) { Image(systemName: "arrow.clockwise") }
             }
         }
         .task { reload() }
@@ -54,48 +47,45 @@ struct ProjectsView: View {
 
     private func reload() {
         isLoading = true
-        do {
-            projects = try ScanProjectStore.allProjects()
-            errorMessage = nil
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        do { projects = try ScanProjectStore.allProjects(); errorMessage = nil }
+        catch { errorMessage = error.localizedDescription }
         isLoading = false
     }
 
     private func delete(_ project: ScanProject) {
-        do {
-            try ScanProjectStore.delete(project)
-            projects.removeAll { $0.id == project.id }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        do { try ScanProjectStore.delete(project); projects.removeAll { $0.id == project.id } }
+        catch { errorMessage = error.localizedDescription }
     }
 }
 
-private struct ProjectRow: View {
+private struct ProjectCard: View {
     let project: ScanProject
+    @State private var thumbnail: UIImage?
 
     var body: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(LinearGradient(colors: [.cyan.opacity(0.3), .blue.opacity(0.15)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                Image(systemName: "cube.transparent")
-                    .font(.title2)
-                    .foregroundStyle(.cyan)
+        VStack(alignment: .leading, spacing: 8) {
+            Group {
+                if let thumbnail {
+                    Image(uiImage: thumbnail).resizable().scaledToFill()
+                } else {
+                    ZStack {
+                        LinearGradient(colors: [.cyan.opacity(0.28), .blue.opacity(0.08)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        Image(systemName: "cube.transparent").font(.system(size: 42)).foregroundStyle(.cyan)
+                    }
+                }
             }
-            .frame(width: 58, height: 58)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(project.name).font(.headline).lineLimit(1)
-                Text(project.createdAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption).foregroundStyle(.secondary)
-                Text("\(project.vertexCount.formatted()) вершин · \(project.triangleCount.formatted()) треугольников")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
+            .frame(height: 130).frame(maxWidth: .infinity).clipped().clipShape(RoundedRectangle(cornerRadius: 14))
+            Text(project.name).font(.headline).lineLimit(1)
+            Text(project.createdAt.formatted(date: .abbreviated, time: .shortened)).font(.caption2).foregroundStyle(.secondary)
+            Text("\(project.vertexCount.formatted()) вершин · \(project.triangleCount.formatted()) треугольников")
+                .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
         }
-        .padding(.vertical, 4)
+        .padding(10)
+        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 18))
+        .task {
+            guard let mesh = try? ScanProjectStore.load(project) else { return }
+            thumbnail = MeshThumbnailRenderer.render(mesh)
+        }
     }
 }
 
@@ -115,11 +105,42 @@ private struct ProjectDetailView: View {
             }
         }
         .task {
-            do {
-                mesh = try ScanProjectStore.load(project)
-            } catch {
-                errorMessage = error.localizedDescription
-            }
+            do { mesh = try ScanProjectStore.load(project) }
+            catch { errorMessage = error.localizedDescription }
         }
+    }
+}
+
+private enum MeshThumbnailRenderer {
+    static func render(_ mesh: ScanMesh) -> UIImage? {
+        guard !mesh.vertices.isEmpty, mesh.faces.count >= 3 else { return nil }
+        let scene = SCNScene()
+        let points = mesh.vertices
+        let center = points.reduce(SIMD3<Float>.zero, +) / Float(points.count)
+        let centered = points.map { $0 - center }
+        var floats: [Float] = []
+        for p in centered { floats.append(contentsOf: [p.x, p.y, p.z]) }
+        let source = SCNGeometrySource(data: floats.withUnsafeBufferPointer { Data(buffer: $0) },
+            semantic: .vertex, vectorCount: points.count, usesFloatComponents: true,
+            componentsPerVector: 3, bytesPerComponent: 4, dataOffset: 0, dataStride: 12)
+        var indices = Data()
+        for index in mesh.faces { var v = index.littleEndian; withUnsafeBytes(of: &v) { indices.append(contentsOf: $0) } }
+        let element = SCNGeometryElement(data: indices, primitiveType: .triangles, primitiveCount: mesh.triangleCount, bytesPerIndex: 4)
+        let geometry = SCNGeometry(sources: [source], elements: [element])
+        let material = SCNMaterial()
+        material.diffuse.contents = UIColor.systemTeal
+        material.isDoubleSided = true
+        geometry.firstMaterial = material
+        scene.rootNode.addChildNode(SCNNode(geometry: geometry))
+        let radius = max(points.map { simd_length($0 - center) }.max() ?? 0.5, 0.2)
+        let camera = SCNNode()
+        camera.camera = SCNCamera()
+        camera.position = SCNVector3(radius * 2, radius * 1.4, radius * 2)
+        camera.look(at: SCNVector3Zero)
+        scene.rootNode.addChildNode(camera)
+        let renderer = SCNRenderer(device: nil, options: nil)
+        renderer.scene = scene
+        renderer.pointOfView = camera
+        return renderer.snapshot(atTime: 0, with: CGSize(width: 420, height: 320), antialiasingMode: .multisampling4X)
     }
 }

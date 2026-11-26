@@ -4,42 +4,32 @@ enum ScanProjectStore {
     private static let folderName = "Scans"
     private static let metadataExtension = "lsp"
     private static let meshExtension = "lspmesh"
-    private static let magic = Array("LSPMESH1".utf8)
+    private static let magicV1 = Array("LSPMESH1".utf8)
+    private static let magicV2 = Array("LSPMESH2".utf8)
 
     private static var directory: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent(folderName, isDirectory: true)
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(folderName, isDirectory: true)
     }
 
     static func allProjects() throws -> [ScanProject] {
         try ensureDirectory()
-        let files = try FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        )
-        return try files
-            .filter { $0.pathExtension == metadataExtension }
-            .compactMap { url -> ScanProject? in
-                let data = try Data(contentsOf: url)
-                let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .iso8601
-                return try decoder.decode(ScanProject.self, from: data)
-            }
-            .sorted { $0.createdAt > $1.createdAt }
+        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+        return try files.filter { $0.pathExtension == metadataExtension }.compactMap { url in
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode(ScanProject.self, from: Data(contentsOf: url))
+        }.sorted { $0.createdAt > $1.createdAt }
     }
 
     @discardableResult
     static func save(mesh: ScanMesh, name: String) throws -> ScanProject {
         guard !mesh.vertices.isEmpty else { throw StoreError.emptyMesh }
         try ensureDirectory()
-
         let id = UUID()
         let meshName = "\(id.uuidString).\(meshExtension)"
         let project = ScanProject(id: id, name: cleanName(name), mesh: mesh, meshFileName: meshName)
         let meshURL = directory.appendingPathComponent(meshName)
         let metadataURL = directory.appendingPathComponent("\(id.uuidString).\(metadataExtension)")
-
         try encode(mesh).write(to: meshURL, options: .atomic)
         do {
             let encoder = JSONEncoder()
@@ -53,18 +43,13 @@ enum ScanProjectStore {
     }
 
     static func load(_ project: ScanProject) throws -> ScanMesh {
-        let url = directory.appendingPathComponent(project.meshFileName)
-        return try decode(Data(contentsOf: url))
+        try decode(Data(contentsOf: directory.appendingPathComponent(project.meshFileName)))
     }
 
     static func delete(_ project: ScanProject) throws {
-        let metadataURL = directory.appendingPathComponent("\(project.id.uuidString).\(metadataExtension)")
-        let meshURL = directory.appendingPathComponent(project.meshFileName)
-        if FileManager.default.fileExists(atPath: metadataURL.path) {
-            try FileManager.default.removeItem(at: metadataURL)
-        }
-        if FileManager.default.fileExists(atPath: meshURL.path) {
-            try FileManager.default.removeItem(at: meshURL)
+        for name in ["\(project.id.uuidString).\(metadataExtension)", project.meshFileName] {
+            let url = directory.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
         }
     }
 
@@ -78,65 +63,71 @@ enum ScanProjectStore {
     }
 
     private static func encode(_ mesh: ScanMesh) -> Data {
-        var data = Data(magic)
+        var data = Data(magicV2)
         append(UInt32(mesh.vertices.count), to: &data)
         append(UInt32(mesh.faces.count), to: &data)
-        for vertex in mesh.vertices {
-            append(vertex.x.bitPattern, to: &data)
-            append(vertex.y.bitPattern, to: &data)
-            append(vertex.z.bitPattern, to: &data)
+        append(UInt32(mesh.hasColors ? mesh.colors.count : 0), to: &data)
+        for p in mesh.vertices {
+            append(p.x.bitPattern, to: &data); append(p.y.bitPattern, to: &data); append(p.z.bitPattern, to: &data)
         }
-        for index in mesh.faces {
-            append(index, to: &data)
+        for index in mesh.faces { append(index, to: &data) }
+        if mesh.hasColors {
+            for c in mesh.colors {
+                append(c.x.bitPattern, to: &data); append(c.y.bitPattern, to: &data)
+                append(c.z.bitPattern, to: &data); append(c.w.bitPattern, to: &data)
+            }
         }
         return data
     }
 
     private static func decode(_ data: Data) throws -> ScanMesh {
-        guard data.count >= 16, Array(data.prefix(8)) == magic else {
-            throw StoreError.invalidMeshFile
-        }
-
+        guard data.count >= 16 else { throw StoreError.invalidMeshFile }
+        let header = Array(data.prefix(8))
+        let version2 = header == magicV2
+        guard version2 || header == magicV1 else { throw StoreError.invalidMeshFile }
         var offset = 8
         let vertexCount = Int(readUInt32(data, at: &offset))
         let indexCount = Int(readUInt32(data, at: &offset))
+        let colorCount = version2 ? Int(readUInt32(data, at: &offset)) : 0
         guard vertexCount <= 20_000_000, indexCount <= 60_000_000,
-              data.count == 16 + vertexCount * 12 + indexCount * 4 else {
-            throw StoreError.invalidMeshFile
-        }
+              colorCount == 0 || colorCount == vertexCount else { throw StoreError.invalidMeshFile }
+        let expected = (version2 ? 20 : 16) + vertexCount * 12 + indexCount * 4 + colorCount * 16
+        guard data.count == expected else { throw StoreError.invalidMeshFile }
 
         var vertices: [SIMD3<Float>] = []
         vertices.reserveCapacity(vertexCount)
         for _ in 0..<vertexCount {
-            let x = Float(bitPattern: readUInt32(data, at: &offset))
-            let y = Float(bitPattern: readUInt32(data, at: &offset))
-            let z = Float(bitPattern: readUInt32(data, at: &offset))
-            vertices.append(SIMD3<Float>(x, y, z))
+            vertices.append(SIMD3<Float>(
+                Float(bitPattern: readUInt32(data, at: &offset)),
+                Float(bitPattern: readUInt32(data, at: &offset)),
+                Float(bitPattern: readUInt32(data, at: &offset))
+            ))
         }
-
         var faces: [UInt32] = []
         faces.reserveCapacity(indexCount)
-        for _ in 0..<indexCount {
-            faces.append(readUInt32(data, at: &offset))
+        for _ in 0..<indexCount { faces.append(readUInt32(data, at: &offset)) }
+        guard faces.allSatisfy({ Int($0) < vertexCount }) else { throw StoreError.invalidMeshFile }
+
+        var colors: [SIMD4<Float>] = []
+        colors.reserveCapacity(colorCount)
+        for _ in 0..<colorCount {
+            colors.append(SIMD4<Float>(
+                Float(bitPattern: readUInt32(data, at: &offset)),
+                Float(bitPattern: readUInt32(data, at: &offset)),
+                Float(bitPattern: readUInt32(data, at: &offset)),
+                Float(bitPattern: readUInt32(data, at: &offset))
+            ))
         }
-        guard faces.allSatisfy({ Int($0) < vertexCount }) else {
-            throw StoreError.invalidMeshFile
-        }
-        return ScanMesh(vertices: vertices, faces: faces)
+        return ScanMesh(vertices: vertices, faces: faces, colors: colors)
     }
 
     private static func append(_ value: UInt32, to data: inout Data) {
-        data.append(UInt8(value & 0xff))
-        data.append(UInt8((value >> 8) & 0xff))
-        data.append(UInt8((value >> 16) & 0xff))
-        data.append(UInt8((value >> 24) & 0xff))
+        data.append(UInt8(value & 0xff)); data.append(UInt8((value >> 8) & 0xff))
+        data.append(UInt8((value >> 16) & 0xff)); data.append(UInt8((value >> 24) & 0xff))
     }
 
     private static func readUInt32(_ data: Data, at offset: inout Int) -> UInt32 {
-        let value = UInt32(data[offset])
-            | (UInt32(data[offset + 1]) << 8)
-            | (UInt32(data[offset + 2]) << 16)
-            | (UInt32(data[offset + 3]) << 24)
+        let value = UInt32(data[offset]) | (UInt32(data[offset + 1]) << 8) | (UInt32(data[offset + 2]) << 16) | (UInt32(data[offset + 3]) << 24)
         offset += 4
         return value
     }
@@ -144,13 +135,10 @@ enum ScanProjectStore {
     enum StoreError: LocalizedError {
         case emptyMesh
         case invalidMeshFile
-
         var errorDescription: String? {
             switch self {
-            case .emptyMesh:
-                return "Нельзя сохранить пустой скан."
-            case .invalidMeshFile:
-                return "Файл 3D-модели повреждён или имеет неизвестный формат."
+            case .emptyMesh: return "Нельзя сохранить пустой скан."
+            case .invalidMeshFile: return "Файл 3D-модели повреждён или имеет неизвестный формат."
             }
         }
     }

@@ -4,66 +4,42 @@ struct DashboardView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 22) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("LiDAR Scanner").font(.largeTitle.bold())
-                        Text("Пространство вокруг тебя. В трёх измерениях.")
+                        Text("Сканирование, измерение и экспорт 3D-моделей.")
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                     .padding(.top, 12)
 
-                    NavigationLink {
-                        ScannerView()
-                    } label: {
-                        ZStack(alignment: .bottomLeading) {
-                            RoundedRectangle(cornerRadius: 28)
-                                .fill(LinearGradient(
-                                    colors: [Color.cyan.opacity(0.35), Color.blue.opacity(0.12), Color.black],
-                                    startPoint: .topLeading, endPoint: .bottomTrailing
-                                ))
-                            VStack(alignment: .leading, spacing: 12) {
-                                Image(systemName: "view.3d").font(.system(size: 42, weight: .light))
-                                Text("Новое сканирование").font(.title2.bold())
-                                Text("Захват геометрии через LiDAR и ARKit")
-                                    .font(.subheadline).foregroundStyle(.secondary)
-                                Label("Начать", systemImage: "arrow.up.right")
-                                    .font(.headline).padding(.top, 4)
-                            }
-                            .padding(24)
-                        }
-                        .frame(height: 230)
-                        .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.12)))
+                    NavigationLink { ScannerView() } label: {
+                        featureCard("Новое 3D-сканирование", detail: "Объекты и произвольные поверхности", icon: "view.3d", tint: .cyan)
                     }
                     .buttonStyle(.plain)
 
-                    NavigationLink {
-                        ProjectsView()
-                    } label: {
-                        HStack(spacing: 16) {
-                            Image(systemName: "square.stack.3d.up")
-                                .font(.system(size: 30))
-                                .foregroundStyle(.cyan)
-                                .frame(width: 58, height: 58)
-                                .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Мои сканы").font(.headline)
-                                Text("Библиотека сохранённых 3D-моделей")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
-                        }
-                        .padding(16)
-                        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 20))
+                    NavigationLink { RoomScannerView() } label: {
+                        featureCard("Сканирование помещения", detail: "Стены, двери, окна и распознанные объекты через RoomPlan", icon: "house", tint: .orange)
                     }
                     .buttonStyle(.plain)
+
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                        NavigationLink { ProjectsView() } label: {
+                            smallCard("3D-модели", detail: "Галерея сканов", icon: "cube.transparent")
+                        }.buttonStyle(.plain)
+                        NavigationLink { RoomProjectsView() } label: {
+                            smallCard("Помещения", detail: "Проекты RoomPlan", icon: "house.lodge")
+                        }.buttonStyle(.plain)
+                    }
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Возможности").font(.title3.bold())
-                        featureRow("3D-реконструкция", detail: "Сетка поверхностей в реальном времени", icon: "cube.transparent")
-                        featureRow("3D-просмотр", detail: "Вращение, масштабирование, сдвиг и каркас", icon: "rotate.3d")
-                        featureRow("Экспорт моделей", detail: "Сейчас PLY, следующие форматы в разработке", icon: "square.and.arrow.up")
+                        Text("Инструменты модели").font(.title3.bold())
+                        featureLine("Измерение расстояния", "Выбери две точки прямо на модели", "ruler")
+                        featureLine("Площадь и объём", "Автоматический расчёт по треугольной сетке", "square.3.layers.3d")
+                        featureLine("Упрощение сетки", "Уменьшение числа полигонов с сохранением формы", "arrow.down.right.and.arrow.up.left")
+                        featureLine("Экспорт", "PLY · OBJ · STL · USDZ · GLB", "square.and.arrow.up")
                     }
+                    .padding(16)
+                    .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 20))
                 }
                 .padding(20)
             }
@@ -73,18 +49,41 @@ struct DashboardView: View {
         .tint(.cyan)
     }
 
-    private func featureRow(_ title: String, detail: String, icon: String) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: icon).font(.title2).foregroundStyle(.cyan)
-                .frame(width: 42, height: 42)
-                .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
-            VStack(alignment: .leading, spacing: 3) {
+    private func featureCard(_ title: String, detail: String, icon: String, tint: Color) -> some View {
+        HStack(spacing: 16) {
+            Image(systemName: icon).font(.system(size: 34)).foregroundStyle(tint)
+                .frame(width: 64, height: 64).background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
+            VStack(alignment: .leading, spacing: 5) {
                 Text(title).font(.headline)
                 Text(detail).font(.caption).foregroundStyle(.secondary)
+                Label("Открыть", systemImage: "arrow.up.right").font(.caption.bold()).padding(.top, 3)
             }
             Spacer(minLength: 0)
         }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LinearGradient(colors: [tint.opacity(0.18), .white.opacity(0.035)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22).stroke(.white.opacity(0.08)))
+    }
+
+    private func smallCard(_ title: String, detail: String, icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: icon).font(.title2).foregroundStyle(.cyan)
+            Text(title).font(.headline)
+            Text(detail).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
         .padding(14)
-        .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 16))
+        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private func featureLine(_ title: String, _ detail: String, _ icon: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).foregroundStyle(.cyan).frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.bold())
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+        }
     }
 }

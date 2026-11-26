@@ -1,4 +1,5 @@
 import ARKit
+import Combine
 import Foundation
 import simd
 
@@ -11,45 +12,51 @@ final class ScannerViewModel: ObservableObject {
     @Published var projectName = "Новый скан"
 
     private var chunks: [UUID: MeshChunk] = [:]
+    private var processedMesh: ScanMesh?
 
     var hasMesh: Bool { vertexCount > 0 }
 
     func setUnavailable(_ message: String) { status = message }
 
     func consume(anchors: [ARAnchor]) {
+        processedMesh = nil
         for anchor in anchors {
             guard let meshAnchor = anchor as? ARMeshAnchor else { continue }
             chunks[meshAnchor.identifier] = Self.makeChunk(from: meshAnchor)
         }
-
-        var vertices = 0
-        var triangles = 0
-        for chunk in chunks.values {
-            vertices += chunk.vertices.count
-            triangles += chunk.faces.count / 3
-        }
-        meshAnchorCount = chunks.count
-        vertexCount = vertices
-        triangleCount = triangles
-        status = hasMesh ? "Сканирование активно" : "Наведите камеру на поверхность"
+        updateCounts()
+        status = hasMesh ? "Сканирование активно · цветовая классификация" : "Наведите камеру на поверхность"
     }
 
     func makeMesh() -> ScanMesh {
+        if let processedMesh { return processedMesh }
         var result = ScanMesh()
         for chunk in chunks.values { result.append(chunk) }
         return result
     }
 
-    func exportPLY() throws -> URL {
-        try PLYExporter.export(makeMesh(), projectName: projectName)
+    func simplify(voxelSize: Float) {
+        let original = makeMesh()
+        let simplified = MeshSimplifier.simplify(original, voxelSize: voxelSize)
+        processedMesh = simplified
+        vertexCount = simplified.vertices.count
+        triangleCount = simplified.triangleCount
+        status = "Сетка упрощена: \(original.vertices.count.formatted()) → \(simplified.vertices.count.formatted()) вершин"
     }
 
     func reset() {
         chunks.removeAll()
+        processedMesh = nil
         meshAnchorCount = 0
         vertexCount = 0
         triangleCount = 0
         status = "Сканирование активно"
+    }
+
+    private func updateCounts() {
+        vertexCount = chunks.values.reduce(0) { $0 + $1.vertices.count }
+        triangleCount = chunks.values.reduce(0) { $0 + $1.faces.count / 3 }
+        meshAnchorCount = chunks.count
     }
 
     private static func makeChunk(from anchor: ARMeshAnchor) -> MeshChunk {
@@ -58,7 +65,6 @@ final class ScannerViewModel: ObservableObject {
         var vertices: [SIMD3<Float>] = []
         vertices.reserveCapacity(source.count)
         let vertexBase = source.buffer.contents()
-
         for index in 0..<source.count {
             let address = vertexBase.advanced(by: source.offset + index * source.stride)
             let local = address.assumingMemoryBound(to: SIMD3<Float>.self).pointee
@@ -70,18 +76,36 @@ final class ScannerViewModel: ObservableObject {
         let faceBase = faces.buffer.contents()
         var indices: [UInt32] = []
         indices.reserveCapacity(faces.count * faces.indexCountPerPrimitive)
+        var colors = Array(repeating: SIMD4<Float>(0.15, 0.68, 0.82, 1), count: source.count)
 
         for face in 0..<faces.count {
+            var faceIndices: [Int] = []
             for corner in 0..<faces.indexCountPerPrimitive {
                 let offset = (face * faces.indexCountPerPrimitive + corner) * faces.bytesPerIndex
                 let address = faceBase.advanced(by: offset)
-                if faces.bytesPerIndex == 2 {
-                    indices.append(UInt32(address.assumingMemoryBound(to: UInt16.self).pointee))
-                } else {
-                    indices.append(address.assumingMemoryBound(to: UInt32.self).pointee)
-                }
+                let index: UInt32 = faces.bytesPerIndex == 2
+                    ? UInt32(address.assumingMemoryBound(to: UInt16.self).pointee)
+                    : address.assumingMemoryBound(to: UInt32.self).pointee
+                indices.append(index)
+                faceIndices.append(Int(index))
             }
+            let color = classificationColor(geometry.classificationOf(faceWithIndex: face))
+            for index in faceIndices where index < colors.count { colors[index] = color }
         }
-        return MeshChunk(vertices: vertices, faces: indices)
+        return MeshChunk(vertices: vertices, faces: indices, colors: colors)
+    }
+
+    private static func classificationColor(_ classification: ARMeshClassification) -> SIMD4<Float> {
+        switch classification {
+        case .wall: return SIMD4<Float>(0.18, 0.62, 0.92, 1)
+        case .floor: return SIMD4<Float>(0.20, 0.82, 0.56, 1)
+        case .ceiling: return SIMD4<Float>(0.72, 0.55, 0.94, 1)
+        case .table: return SIMD4<Float>(0.95, 0.68, 0.22, 1)
+        case .seat: return SIMD4<Float>(0.94, 0.42, 0.38, 1)
+        case .window: return SIMD4<Float>(0.28, 0.82, 0.92, 1)
+        case .door: return SIMD4<Float>(0.76, 0.55, 0.32, 1)
+        case .none, .unknown: return SIMD4<Float>(0.48, 0.58, 0.66, 1)
+        @unknown default: return SIMD4<Float>(0.48, 0.58, 0.66, 1)
+        }
     }
 }

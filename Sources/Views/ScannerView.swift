@@ -12,6 +12,8 @@ struct ScannerView: View {
     @State private var showingViewer = false
     @State private var savedMessage: String?
     @State private var showingSaved = false
+    @State private var exportFormat: MeshExportFormat = .ply
+    @State private var simplification: Double = 0.015
 
     var body: some View {
         ZStack {
@@ -24,14 +26,11 @@ struct ScannerView: View {
                     }
                     Spacer()
                     Button { viewModel.reset() } label: {
-                        Image(systemName: "arrow.counterclockwise")
-                            .font(.headline).padding(12)
-                            .background(.ultraThinMaterial, in: Circle())
+                        Image(systemName: "arrow.counterclockwise").font(.headline).padding(12).background(.ultraThinMaterial, in: Circle())
                     }
                     .accessibilityLabel("Сбросить скан")
                 }
-                .padding()
-                .background(.ultraThinMaterial)
+                .padding().background(.ultraThinMaterial)
 
                 Spacer()
 
@@ -40,65 +39,58 @@ struct ScannerView: View {
                     metric(title: "Треугольники", value: viewModel.triangleCount)
                     metric(title: "Области", value: viewModel.meshAnchorCount)
                 }
-                .padding()
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+                .padding().background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
 
                 HStack(spacing: 10) {
-                    Button {
-                        showingViewer = true
-                    } label: {
-                        Label("3D-просмотр", systemImage: "cube.transparent")
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                    Button { showingViewer = true } label: {
+                        Label("3D-просмотр", systemImage: "cube.transparent").frame(maxWidth: .infinity).padding(.vertical, 13).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
                     }
                     .disabled(!viewModel.hasMesh)
-
                     Button(action: saveScan) {
-                        Label("Сохранить", systemImage: "square.and.arrow.down")
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(Color.cyan, in: RoundedRectangle(cornerRadius: 14))
-                            .foregroundStyle(.black)
+                        Label("Сохранить", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity).padding(.vertical, 13).background(Color.cyan, in: RoundedRectangle(cornerRadius: 14)).foregroundStyle(.black)
                     }
                     .disabled(!viewModel.hasMesh)
                 }
-                .font(.subheadline.bold())
-                .padding(.top, 12)
+                .font(.subheadline.bold()).padding(.top, 10)
 
-                Button(action: exportScan) {
-                    Label("Экспортировать PLY", systemImage: "square.and.arrow.up")
-                        .font(.headline).frame(maxWidth: .infinity).padding()
-                        .background(viewModel.hasMesh ? Color.white.opacity(0.12) : Color.gray.opacity(0.2), in: RoundedRectangle(cornerRadius: 16))
-                        .foregroundStyle(.primary)
+                HStack(spacing: 8) {
+                    Button(action: { viewModel.simplify(voxelSize: Float(simplification)) }) {
+                        Label("Упростить", systemImage: "arrow.down.right.and.arrow.up.left").frame(maxWidth: .infinity).padding(.vertical, 12).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .disabled(!viewModel.hasMesh)
+                    Button(action: exportScan) {
+                        Label("Экспорт \(exportFormat.rawValue)", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity).padding(.vertical, 12).background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .disabled(!viewModel.hasMesh)
                 }
-                .disabled(!viewModel.hasMesh)
+                .font(.subheadline.bold()).padding(.top, 8)
+
+                HStack {
+                    Text("Упрощение сетки")
+                    Slider(value: $simplification, in: 0.005...0.06, step: 0.005)
+                    Text("\(Int(simplification * 1000)) мм").monospacedDigit().font(.caption)
+                }
                 .padding(.top, 8)
+
+                Picker("Формат", selection: $exportFormat) {
+                    ForEach(MeshExportFormat.allCases) { format in Text(format.rawValue).tag(format) }
+                }
+                .pickerStyle(.segmented).padding(.top, 6)
             }
             .padding()
         }
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showingExport) {
-            if let exportedURL { ActivityView(items: [exportedURL]) }
-        }
+        .sheet(isPresented: $showingExport) { if let exportedURL { ActivityView(items: [exportedURL]) } }
         .sheet(isPresented: $showingViewer) {
             NavigationStack {
                 ModelViewerView(mesh: viewModel.makeMesh(), title: viewModel.projectName)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Готово") { showingViewer = false }
-                        }
-                    }
+                    .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Готово") { showingViewer = false } } }
             }
         }
         .alert("Скан сохранён", isPresented: $showingSaved) {
-            Button("Просмотреть 3D-модель") {
-                showingViewer = true
-            }
+            Button("Просмотреть 3D-модель") { showingViewer = true }
             Button("Продолжить", role: .cancel) {}
-        } message: {
-            Text(savedMessage ?? "Модель добавлена в библиотеку.")
-        }
+        } message: { Text(savedMessage ?? "Модель добавлена в библиотеку.") }
         .alert("Ошибка", isPresented: $showingError) {
             Button("ОК", role: .cancel) {}
         } message: { Text(errorMessage) }
@@ -125,7 +117,7 @@ struct ScannerView: View {
 
     private func exportScan() {
         do {
-            exportedURL = try viewModel.exportPLY()
+            exportedURL = try MeshExportService.export(viewModel.makeMesh(), name: viewModel.projectName, format: exportFormat)
             showingExport = true
         } catch {
             errorMessage = error.localizedDescription
@@ -136,7 +128,6 @@ struct ScannerView: View {
 
 private struct LiDARSceneView: UIViewRepresentable {
     @ObservedObject var viewModel: ScannerViewModel
-
     func makeCoordinator() -> Coordinator { Coordinator(viewModel: viewModel) }
 
     func makeUIView(context: Context) -> ARSCNView {
@@ -145,14 +136,12 @@ private struct LiDARSceneView: UIViewRepresentable {
         view.delegate = context.coordinator
         view.session.delegate = context.coordinator
         view.scene = SCNScene()
-
         guard ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) else {
             viewModel.setUnavailable("Это устройство не поддерживает LiDAR Mesh")
             return view
         }
-
         let configuration = ARWorldTrackingConfiguration()
-        configuration.sceneReconstruction = .mesh
+        configuration.sceneReconstruction = ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) ? .meshWithClassification : .mesh
         configuration.planeDetection = [.horizontal, .vertical]
         view.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
         return view
@@ -195,23 +184,15 @@ private struct LiDARSceneView: UIViewRepresentable {
             let length = max(0, (vertices.count - 1) * vertices.stride + MemoryLayout<SIMD3<Float>>.size)
             let pointer = vertices.buffer.contents().advanced(by: vertices.offset)
             let data = Data(bytes: pointer, count: length)
-            let source = SCNGeometrySource(
-                data: data, semantic: .vertex, vectorCount: vertices.count,
-                usesFloatComponents: true, componentsPerVector: 3,
-                bytesPerComponent: MemoryLayout<Float>.size, dataOffset: 0,
-                dataStride: vertices.stride
-            )
-
+            let source = SCNGeometrySource(data: data, semantic: .vertex, vectorCount: vertices.count,
+                usesFloatComponents: true, componentsPerVector: 3, bytesPerComponent: 4, dataOffset: 0, dataStride: vertices.stride)
             let faces = mesh.faces
             let faceLength = faces.count * faces.indexCountPerPrimitive * faces.bytesPerIndex
             let faceData = Data(bytes: faces.buffer.contents(), count: faceLength)
-            let element = SCNGeometryElement(
-                data: faceData, primitiveType: .triangles,
-                primitiveCount: faces.count, bytesPerIndex: faces.bytesPerIndex
-            )
+            let element = SCNGeometryElement(data: faceData, primitiveType: .triangles, primitiveCount: faces.count, bytesPerIndex: faces.bytesPerIndex)
             let geometry = SCNGeometry(sources: [source], elements: [element])
             let material = SCNMaterial()
-            material.diffuse.contents = UIColor.systemCyan.withAlphaComponent(0.28)
+            material.diffuse.contents = UIColor.systemCyan.withAlphaComponent(0.3)
             material.isDoubleSided = true
             material.fillMode = .lines
             geometry.firstMaterial = material
@@ -222,8 +203,6 @@ private struct LiDARSceneView: UIViewRepresentable {
 
 private struct ActivityView: UIViewControllerRepresentable {
     let items: [Any]
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
-    }
+    func makeUIViewController(context: Context) -> UIActivityViewController { UIActivityViewController(activityItems: items, applicationActivities: nil) }
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
