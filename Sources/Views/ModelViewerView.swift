@@ -1,5 +1,6 @@
 import SceneKit
 import SwiftUI
+import simd
 import UIKit
 
 struct ModelViewerView: View {
@@ -95,7 +96,7 @@ private struct SceneKitModelView: UIViewRepresentable {
             let cameraNode = SCNNode()
             cameraNode.camera = SCNCamera()
             cameraNode.camera?.zNear = 0.001
-            cameraNode.camera?.zFar = max(1000, Double(distance) * 100)
+            cameraNode.camera?.zFar = CGFloat(max(1000, Double(distance) * 100))
             cameraNode.position = SCNVector3(center.x, center.y, center.z + distance)
             cameraNode.look(at: center)
             view.scene?.rootNode.addChildNode(cameraNode)
@@ -104,10 +105,11 @@ private struct SceneKitModelView: UIViewRepresentable {
         }
 
         func setWireframe(_ enabled: Bool) {
-            modelNode?.geometry?.firstMaterial?.fillMode = enabled ? .lines : .fill
-            modelNode?.geometry?.firstMaterial?.diffuse.contents = enabled
-                ? UIColor.systemTeal.withAlphaComponent(0.9)
-                : UIColor.systemTeal.withAlphaComponent(0.82)
+            modelNode?.geometry?.materials.first?.fillMode = enabled ? .lines : .fill
+            modelNode?.geometry?.materials.first?.lightingModel = .constant
+            modelNode?.geometry?.materials.first?.diffuse.contents = enabled
+                ? UIColor.systemTeal.withAlphaComponent(0.95)
+                : UIColor.systemTeal.withAlphaComponent(0.88)
         }
 
         private func meshBounds(_ mesh: ScanMesh) -> (min: SIMD3<Float>, max: SIMD3<Float>) {
@@ -157,7 +159,7 @@ private struct SceneKitModelView: UIViewRepresentable {
             let geometry = SCNGeometry(sources: [source], elements: [element])
             let material = SCNMaterial()
             material.diffuse.contents = UIColor.systemTeal.withAlphaComponent(0.82)
-            material.lightingModel = .physicallyBased
+            material.lightingModel = .constant
             material.metalness.contents = 0.12
             material.roughness.contents = 0.68
             material.isDoubleSided = true

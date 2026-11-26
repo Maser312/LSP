@@ -22,7 +22,9 @@ enum ScanProjectStore {
             .filter { $0.pathExtension == metadataExtension }
             .compactMap { url -> ScanProject? in
                 let data = try Data(contentsOf: url)
-                return try JSONDecoder().decode(ScanProject.self, from: data)
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                return try decoder.decode(ScanProject.self, from: data)
             }
             .sorted { $0.createdAt > $1.createdAt }
     }

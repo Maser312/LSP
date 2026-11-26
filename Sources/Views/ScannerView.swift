@@ -92,8 +92,8 @@ struct ScannerView: View {
             }
         }
         .alert("Скан сохранён", isPresented: $showingSaved) {
-            Button("Открыть библиотеку") {
-                NotificationCenter.default.post(name: .openScanLibrary, object: nil)
+            Button("Просмотреть 3D-модель") {
+                showingViewer = true
             }
             Button("Продолжить", role: .cancel) {}
         } message: {
@@ -132,10 +132,6 @@ struct ScannerView: View {
             showingError = true
         }
     }
-}
-
-extension Notification.Name {
-    static let openScanLibrary = Notification.Name("openScanLibrary")
 }
 
 private struct LiDARSceneView: UIViewRepresentable {
