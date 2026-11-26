@@ -99,7 +99,7 @@ private struct RoomCaptureContainer: UIViewRepresentable {
     @Binding var isScanning: Bool
     let onCaptured: (CapturedRoom) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(onCaptured: onCaptured) }
+    func makeCoordinator() -> RoomCaptureCoordinator { RoomCaptureCoordinator(onCaptured: onCaptured) }
 
     func makeUIView(context: Context) -> RoomCaptureView {
         let view = RoomCaptureView(frame: .zero)
@@ -115,24 +115,38 @@ private struct RoomCaptureContainer: UIViewRepresentable {
         }
     }
 
-    static func dismantleUIView(_ uiView: RoomCaptureView, coordinator: Coordinator) {
+    static func dismantleUIView(_ uiView: RoomCaptureView, coordinator: RoomCaptureCoordinator) {
         uiView.captureSession.stop(pauseARSession: true)
     }
 
-    final class Coordinator: NSObject, RoomCaptureViewDelegate {
-        let onCaptured: (CapturedRoom) -> Void
-        var didStop = false
-        init(onCaptured: @escaping (CapturedRoom) -> Void) { self.onCaptured = onCaptured }
+}
 
-        func captureView(shouldPresent roomDataForProcessing: CapturedRoomData, error: Error?) -> Bool {
-            true
-        }
+@objc(RoomCaptureCoordinator)
+private final class RoomCaptureCoordinator: NSObject, RoomCaptureViewDelegate {
+    let onCaptured: (CapturedRoom) -> Void
+    var didStop = false
 
-        func captureView(didPresent room: CapturedRoom, error: Error?) {
-            if let error { print("RoomPlan capture error: \(error.localizedDescription)") }
-            DispatchQueue.main.async { self.onCaptured(room) }
-        }
+    init(onCaptured: @escaping (CapturedRoom) -> Void) {
+        self.onCaptured = onCaptured
+        super.init()
     }
+
+    required init?(coder: NSCoder) {
+        self.onCaptured = { _ in }
+        super.init()
+    }
+
+    func encode(with coder: NSCoder) {}
+
+    func captureView(shouldPresent roomDataForProcessing: CapturedRoomData, error: Error?) -> Bool {
+        true
+    }
+
+    func captureView(didPresent room: CapturedRoom, error: Error?) {
+        if let error { print("RoomPlan capture error: \\(error.localizedDescription)") }
+        DispatchQueue.main.async { self.onCaptured(room) }
+    }
+
 }
 
 private struct RoomShareSheet: UIViewControllerRepresentable {
