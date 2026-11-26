@@ -31,16 +31,38 @@ struct DashboardView: View {
                             }
                             .padding(24)
                         }
-                        .frame(height: 250)
+                        .frame(height: 230)
                         .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.12)))
+                    }
+                    .buttonStyle(.plain)
+
+                    NavigationLink {
+                        ProjectsView()
+                    } label: {
+                        HStack(spacing: 16) {
+                            Image(systemName: "square.stack.3d.up")
+                                .font(.system(size: 30))
+                                .foregroundStyle(.cyan)
+                                .frame(width: 58, height: 58)
+                                .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Мои сканы").font(.headline)
+                                Text("Библиотека сохранённых 3D-моделей")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                        }
+                        .padding(16)
+                        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 20))
                     }
                     .buttonStyle(.plain)
 
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Возможности").font(.title3.bold())
                         featureRow("3D-реконструкция", detail: "Сетка поверхностей в реальном времени", icon: "cube.transparent")
-                        featureRow("Измерения", detail: "Основа для расстояний, площадей и объёмов", icon: "ruler")
-                        featureRow("Экспорт моделей", detail: "Первый формат: PLY. Другие добавим отдельными экспортёрами", icon: "square.and.arrow.up")
+                        featureRow("3D-просмотр", detail: "Вращение, масштабирование, сдвиг и каркас", icon: "rotate.3d")
+                        featureRow("Экспорт моделей", detail: "Сейчас PLY, следующие форматы в разработке", icon: "square.and.arrow.up")
                     }
                 }
                 .padding(20)

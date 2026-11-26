@@ -9,6 +9,9 @@ struct ScannerView: View {
     @State private var showingExport = false
     @State private var showingError = false
     @State private var errorMessage = ""
+    @State private var showingViewer = false
+    @State private var savedMessage: String?
+    @State private var showingSaved = false
 
     var body: some View {
         ZStack {
@@ -40,14 +43,37 @@ struct ScannerView: View {
                 .padding()
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
 
+                HStack(spacing: 10) {
+                    Button {
+                        showingViewer = true
+                    } label: {
+                        Label("3D-просмотр", systemImage: "cube.transparent")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                    }
+                    .disabled(!viewModel.hasMesh)
+
+                    Button(action: saveScan) {
+                        Label("Сохранить", systemImage: "square.and.arrow.down")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Color.cyan, in: RoundedRectangle(cornerRadius: 14))
+                            .foregroundStyle(.black)
+                    }
+                    .disabled(!viewModel.hasMesh)
+                }
+                .font(.subheadline.bold())
+                .padding(.top, 12)
+
                 Button(action: exportScan) {
                     Label("Экспортировать PLY", systemImage: "square.and.arrow.up")
                         .font(.headline).frame(maxWidth: .infinity).padding()
-                        .background(viewModel.hasMesh ? Color.cyan : Color.gray, in: RoundedRectangle(cornerRadius: 16))
-                        .foregroundStyle(.black)
+                        .background(viewModel.hasMesh ? Color.white.opacity(0.12) : Color.gray.opacity(0.2), in: RoundedRectangle(cornerRadius: 16))
+                        .foregroundStyle(.primary)
                 }
                 .disabled(!viewModel.hasMesh)
-                .padding(.top, 12)
+                .padding(.top, 8)
             }
             .padding()
         }
@@ -55,7 +81,25 @@ struct ScannerView: View {
         .sheet(isPresented: $showingExport) {
             if let exportedURL { ActivityView(items: [exportedURL]) }
         }
-        .alert("Не удалось экспортировать", isPresented: $showingError) {
+        .sheet(isPresented: $showingViewer) {
+            NavigationStack {
+                ModelViewerView(mesh: viewModel.makeMesh(), title: viewModel.projectName)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Готово") { showingViewer = false }
+                        }
+                    }
+            }
+        }
+        .alert("Скан сохранён", isPresented: $showingSaved) {
+            Button("Открыть библиотеку") {
+                NotificationCenter.default.post(name: .openScanLibrary, object: nil)
+            }
+            Button("Продолжить", role: .cancel) {}
+        } message: {
+            Text(savedMessage ?? "Модель добавлена в библиотеку.")
+        }
+        .alert("Ошибка", isPresented: $showingError) {
             Button("ОК", role: .cancel) {}
         } message: { Text(errorMessage) }
     }
@@ -68,6 +112,17 @@ struct ScannerView: View {
         .frame(maxWidth: .infinity)
     }
 
+    private func saveScan() {
+        do {
+            let project = try ScanProjectStore.save(mesh: viewModel.makeMesh(), name: viewModel.projectName)
+            savedMessage = "\(project.name) · \(project.vertexCount.formatted()) вершин"
+            showingSaved = true
+        } catch {
+            errorMessage = error.localizedDescription
+            showingError = true
+        }
+    }
+
     private func exportScan() {
         do {
             exportedURL = try viewModel.exportPLY()
@@ -77,6 +132,10 @@ struct ScannerView: View {
             showingError = true
         }
     }
+}
+
+extension Notification.Name {
+    static let openScanLibrary = Notification.Name("openScanLibrary")
 }
 
 private struct LiDARSceneView: UIViewRepresentable {
