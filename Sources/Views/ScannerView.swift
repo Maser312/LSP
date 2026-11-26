@@ -159,13 +159,16 @@ private struct LiDARSceneView: UIViewRepresentable {
         private let viewModel: ScannerViewModel
         init(viewModel: ScannerViewModel) { self.viewModel = viewModel }
 
-        func session(_ session: ARSession, didAdd anchors: [ARAnchor]) { publish(anchors) }
-        func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) { publish(anchors) }
+        func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
+            publish(anchors, frame: session.currentFrame)
+        }
+        func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
+            publish(anchors, frame: session.currentFrame)
+        }
 
-        private func publish(_ anchors: [ARAnchor]) {
+        private func publish(_ anchors: [ARAnchor], frame: ARFrame?) {
             let meshAnchors = anchors.filter { $0 is ARMeshAnchor }
             guard !meshAnchors.isEmpty else { return }
-            let frame = session.currentFrame
             Task { @MainActor in viewModel.consume(anchors: meshAnchors, frame: frame) }
         }
 
