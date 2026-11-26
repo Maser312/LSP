@@ -1,4 +1,4 @@
-name: iOS Build
+name: iOS IPA Build
 
 on:
   push:
@@ -13,26 +13,49 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+
       - name: Install XcodeGen
         run: brew install xcodegen
+
       - name: Generate project
         run: xcodegen generate
-      - name: Build unsigned iOS app
+
+      - name: Build unsigned device app
         run: |
           xcodebuild \
             -project LiDARScannerPro.xcodeproj \
             -scheme LiDARScannerPro \
             -destination 'generic/platform=iOS' \
-            -configuration Debug \
+            -configuration Release \
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
             build
-      - name: Upload app bundle
+
+      - name: Package installable IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/LiDARScannerPro.app"
+          IPA_ROOT="build/ipa"
+          test -d "$APP_PATH"
+          APP_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist")
+          APP_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Info.plist")
+          APP_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Info.plist")
+          mkdir -p "$IPA_ROOT/Payload"
+          cp -R "$APP_PATH" "$IPA_ROOT/Payload/"
+          (cd "$IPA_ROOT" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/build/LiDARScannerPro.ipa" Payload)
+          /usr/bin/unzip -t "$GITHUB_WORKSPACE/build/LiDARScannerPro.ipa"
+          echo "IPA created: $APP_ID $APP_VERSION ($APP_BUILD)"
+
+      - name: Upload IPA for Sideloadly
         uses: actions/upload-artifact@v4
         with:
-          name: LiDARScannerPro-iOS-build-${{ github.run_number }}
-          path: build/DerivedData/Build/Products/Debug-iphoneos/LiDARScannerPro.app
+          name: LiDARScannerPro-IPA-${{ github.run_number }}
+          path: build/LiDARScannerPro.ipa
           if-no-files-found: error
           retention-days: 14
