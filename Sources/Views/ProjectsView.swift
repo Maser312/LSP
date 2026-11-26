@@ -127,7 +127,15 @@ private enum MeshThumbnailRenderer {
         var indices = Data()
         for index in mesh.faces { var v = index.littleEndian; withUnsafeBytes(of: &v) { indices.append(contentsOf: $0) } }
         let element = SCNGeometryElement(data: indices, primitiveType: .triangles, primitiveCount: mesh.triangleCount, bytesPerIndex: 4)
-        let geometry = SCNGeometry(sources: [source], elements: [element])
+        var sources = [source]
+        if mesh.hasColors {
+            var colorFloats: [Float] = []
+            for color in mesh.colors { colorFloats.append(contentsOf: [color.x, color.y, color.z, color.w]) }
+            let colorData = colorFloats.withUnsafeBufferPointer { Data(buffer: $0) }
+            sources.append(SCNGeometrySource(data: colorData, semantic: .color, vectorCount: mesh.colors.count,
+                usesFloatComponents: true, componentsPerVector: 4, bytesPerComponent: 4, dataOffset: 0, dataStride: 16))
+        }
+        let geometry = SCNGeometry(sources: sources, elements: [element])
         let material = SCNMaterial()
         material.diffuse.contents = UIColor.systemTeal
         material.isDoubleSided = true

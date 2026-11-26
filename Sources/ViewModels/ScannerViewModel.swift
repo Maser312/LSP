@@ -13,19 +13,37 @@ final class ScannerViewModel: ObservableObject {
 
     private var chunks: [UUID: MeshChunk] = [:]
     private var processedMesh: ScanMesh?
+    private var lastPhotoColorTimestamp: TimeInterval = -1
 
     var hasMesh: Bool { vertexCount > 0 }
 
     func setUnavailable(_ message: String) { status = message }
 
-    func consume(anchors: [ARAnchor]) {
+    func consume(anchors: [ARAnchor], frame: ARFrame?) {
         processedMesh = nil
+        let shouldSamplePhoto = frame.map {
+            lastPhotoColorTimestamp < 0 || $0.timestamp - lastPhotoColorTimestamp >= 0.65
+        } ?? false
+
         for anchor in anchors {
             guard let meshAnchor = anchor as? ARMeshAnchor else { continue }
-            chunks[meshAnchor.identifier] = Self.makeChunk(from: meshAnchor)
+            var chunk = Self.makeChunk(from: meshAnchor)
+            if shouldSamplePhoto, let frame {
+                chunk = MeshChunk(
+                    vertices: chunk.vertices,
+                    faces: chunk.faces,
+                    colors: CameraColorSampler.sample(points: chunk.vertices, fallback: chunk.colors, frame: frame)
+                )
+            } else if let previous = chunks[meshAnchor.identifier],
+                      previous.colors.count == chunk.vertices.count {
+                chunk = MeshChunk(vertices: chunk.vertices, faces: chunk.faces, colors: previous.colors)
+            }
+            chunks[meshAnchor.identifier] = chunk
         }
+
+        if shouldSamplePhoto, let frame { lastPhotoColorTimestamp = frame.timestamp }
         updateCounts()
-        status = hasMesh ? "Сканирование активно · цветовая классификация" : "Наведите камеру на поверхность"
+        status = hasMesh ? "Сканирование активно · цвет с камеры" : "Наведите камеру на поверхность"
     }
 
     func makeMesh() -> ScanMesh {
@@ -47,6 +65,7 @@ final class ScannerViewModel: ObservableObject {
     func reset() {
         chunks.removeAll()
         processedMesh = nil
+        lastPhotoColorTimestamp = -1
         meshAnchorCount = 0
         vertexCount = 0
         triangleCount = 0

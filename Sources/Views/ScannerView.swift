@@ -165,7 +165,8 @@ private struct LiDARSceneView: UIViewRepresentable {
         private func publish(_ anchors: [ARAnchor]) {
             let meshAnchors = anchors.filter { $0 is ARMeshAnchor }
             guard !meshAnchors.isEmpty else { return }
-            Task { @MainActor in viewModel.consume(anchors: meshAnchors) }
+            let frame = session.currentFrame
+            Task { @MainActor in viewModel.consume(anchors: meshAnchors, frame: frame) }
         }
 
         func renderer(_ renderer: SCNSceneRenderer, didAdd node: SCNNode, for anchor: ARAnchor) {
