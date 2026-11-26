@@ -36,11 +36,8 @@ struct RoomProjectsView: View {
         }
         .navigationTitle("Помещения")
         .onAppear(perform: reload)
-        .sheet(item: Binding(
-            get: { previewURL.map(PreviewItem.init) },
-            set: { previewURL = $0?.url }
-        )) { item in
-            QuickLookPreview(item.url)
+        .sheet(isPresented: Binding(get: { previewURL != nil }, set: { if !$0 { previewURL = nil } })) {
+            if let previewURL { RoomUSDZPreview(url: previewURL) }
         }
         .alert("Ошибка", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("ОК", role: .cancel) { errorMessage = nil }
@@ -53,7 +50,21 @@ struct RoomProjectsView: View {
     }
 }
 
-private struct PreviewItem: Identifiable {
-    let id = UUID()
+private struct RoomUSDZPreview: UIViewControllerRepresentable {
     let url: URL
+    func makeCoordinator() -> Coordinator { Coordinator(url: url) }
+    func makeUIViewController(context: Context) -> QLPreviewController {
+        let controller = QLPreviewController()
+        controller.dataSource = context.coordinator
+        return controller
+    }
+    func updateUIViewController(_ controller: QLPreviewController, context: Context) {}
+    final class Coordinator: NSObject, QLPreviewControllerDataSource {
+        let url: URL
+        init(url: URL) { self.url = url }
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
+            url as NSURL
+        }
+    }
 }

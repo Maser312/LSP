@@ -89,10 +89,17 @@ final class ScannerViewModel: ObservableObject {
                 indices.append(index)
                 faceIndices.append(Int(index))
             }
-            let color = classificationColor(geometry.classificationOf(faceWithIndex: face))
+            let color = classificationColor(classificationOf(face: face, in: geometry))
             for index in faceIndices where index < colors.count { colors[index] = color }
         }
         return MeshChunk(vertices: vertices, faces: indices, colors: colors)
+    }
+
+    private static func classificationOf(face: Int, in geometry: ARMeshGeometry) -> ARMeshClassification {
+        guard let source = geometry.classification else { return .none }
+        let address = source.buffer.contents().advanced(by: face)
+        let rawValue = Int(address.assumingMemoryBound(to: UInt8.self).pointee)
+        return ARMeshClassification(rawValue: rawValue) ?? .none
     }
 
     private static func classificationColor(_ classification: ARMeshClassification) -> SIMD4<Float> {
@@ -104,7 +111,7 @@ final class ScannerViewModel: ObservableObject {
         case .seat: return SIMD4<Float>(0.94, 0.42, 0.38, 1)
         case .window: return SIMD4<Float>(0.28, 0.82, 0.92, 1)
         case .door: return SIMD4<Float>(0.76, 0.55, 0.32, 1)
-        case .none, .unknown: return SIMD4<Float>(0.48, 0.58, 0.66, 1)
+        case .none: return SIMD4<Float>(0.48, 0.58, 0.66, 1)
         @unknown default: return SIMD4<Float>(0.48, 0.58, 0.66, 1)
         }
     }

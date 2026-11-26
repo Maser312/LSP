@@ -21,8 +21,10 @@ enum RoomArchiveStore {
         let baseName = id.uuidString
         let jsonName = baseName + ".json"
         let usdzName = baseName + ".usdz"
+        let metadataName = baseName + ".room"
         let jsonURL = directory.appendingPathComponent(jsonName)
         let usdzURL = directory.appendingPathComponent(usdzName)
+        let metadataURL = directory.appendingPathComponent(metadataName)
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -33,20 +35,28 @@ enum RoomArchiveStore {
             try? FileManager.default.removeItem(at: jsonURL)
             throw error
         }
-        return RoomProject(id: id, name: name, createdAt: .now,
-                           jsonFileName: jsonName, usdzFileName: usdzName)
+        let project = RoomProject(id: id, name: name, createdAt: .now,
+                                  jsonFileName: jsonName, usdzFileName: usdzName)
+        do {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            try encoder.encode(project).write(to: metadataURL, options: .atomic)
+        } catch {
+            try? FileManager.default.removeItem(at: jsonURL)
+            try? FileManager.default.removeItem(at: usdzURL)
+            throw error
+        }
+        return project
     }
 
     static func all() throws -> [RoomProject] {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-        return try files.filter { $0.pathExtension == "json" }.map { url in
-            let room = try JSONDecoder().decode(CapturedRoom.self, from: Data(contentsOf: url))
-            let id = UUID(uuidString: url.deletingPathExtension().lastPathComponent) ?? UUID()
-            let usdz = id.uuidString + ".usdz"
-            return RoomProject(id: id, name: "Помещение", createdAt: .now,
-                               jsonFileName: url.lastPathComponent, usdzFileName: usdz)
-        }
+        return try files.filter { $0.pathExtension == "room" }.map { url in
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode(RoomProject.self, from: Data(contentsOf: url))
+        }.sorted { $0.createdAt > $1.createdAt }
     }
 
     static func usdzURL(for project: RoomProject) -> URL {
@@ -54,7 +64,7 @@ enum RoomArchiveStore {
     }
 
     static func delete(_ project: RoomProject) throws {
-        for name in [project.jsonFileName, project.usdzFileName] {
+        for name in [project.jsonFileName, project.usdzFileName, "\(project.id.uuidString).room"] {
             let url = directory.appendingPathComponent(name)
             if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
         }

@@ -66,7 +66,11 @@ enum MeshSimplifier {
         var vertices: [SIMD3<Float>] = []
         var colors: [SIMD4<Float>] = []
         vertices.reserveCapacity(sums.count)
-        for key in sums.keys.sorted(by: { ($0.x, $0.y, $0.z) < ($1.x, $1.y, $1.z) }) {
+        for key in sums.keys.sorted(by: {
+            if $0.x != $1.x { return $0.x < $1.x }
+            if $0.y != $1.y { return $0.y < $1.y }
+            return $0.z < $1.z
+        }) {
             let count = Float(counts[key, default: 1])
             newIndices[key] = UInt32(vertices.count)
             vertices.append(sums[key, default: .zero] / count)

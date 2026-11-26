@@ -1,5 +1,6 @@
-import QuickLook
+import SceneKit
 import SwiftUI
+import simd
 import UIKit
 
 struct ProjectsView: View {

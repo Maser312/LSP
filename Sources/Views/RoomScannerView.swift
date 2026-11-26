@@ -4,6 +4,7 @@ import UIKit
 
 struct RoomScannerView: View {
     @State private var isScanning = true
+    @State private var captureSessionID = UUID()
     @State private var capturedRoom: CapturedRoom?
     @State private var isProcessing = false
     @State private var errorMessage: String?
@@ -18,6 +19,7 @@ struct RoomScannerView: View {
                 isScanning = false
                 isProcessing = false
             }
+            .id(captureSessionID)
             .ignoresSafeArea()
 
             VStack(spacing: 12) {
@@ -44,6 +46,7 @@ struct RoomScannerView: View {
                             .buttonStyle(.borderedProminent)
                         Button("Новое сканирование") {
                             self.capturedRoom = nil
+                            captureSessionID = UUID()
                             isScanning = true
                         }
                         .buttonStyle(.bordered)
