@@ -56,6 +56,12 @@ struct ModelViewerView: View {
                         .monospacedDigit().bold()
                 }
                 HStack {
+                    Text("Точки на модели")
+                    Spacer()
+                    Text("\(selectedPoints.count)/2")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                HStack {
                     Text("*Объём корректен для замкнутой сетки")
                         .font(.caption2).foregroundStyle(.secondary)
                     Spacer()
@@ -101,23 +107,86 @@ private struct SceneKitModelView: UIViewRepresentable {
     func updateUIView(_ view: SCNView, context: Context) {
         context.coordinator.selectedPoints = $selectedPoints
         context.coordinator.setWireframe(wireframe)
+        context.coordinator.updateMeasurementOverlay(points: selectedPoints)
     }
 
     final class Coordinator: NSObject {
         var selectedPoints: Binding<[SIMD3<Float>]>
         weak var sceneView: SCNView?
         private weak var modelNode: SCNNode?
+        private var markerNodes: [SCNNode] = []
+        private var measurementLineNode: SCNNode?
 
         init(selectedPoints: Binding<[SIMD3<Float>]>) { self.selectedPoints = selectedPoints }
 
         @objc func didTap(_ recognizer: UITapGestureRecognizer) {
             guard let view = sceneView else { return }
             let hits = view.hitTest(recognizer.location(in: view), options: [.searchMode: SCNHitTestSearchMode.closest.rawValue])
-            guard let point = hits.first?.worldCoordinates else { return }
+            guard let point = hits.first(where: { $0.node === modelNode })?.worldCoordinates else { return }
             var points = selectedPoints.wrappedValue
             if points.count == 2 { points.removeAll() }
             points.append(SIMD3<Float>(point.x, point.y, point.z))
             selectedPoints.wrappedValue = points
+            updateMeasurementOverlay(points: points)
+        }
+
+        func updateMeasurementOverlay(points: [SIMD3<Float>]) {
+            guard let root = sceneView?.scene?.rootNode else { return }
+            markerNodes.forEach { $0.removeFromParentNode() }
+            markerNodes.removeAll()
+            measurementLineNode?.removeFromParentNode()
+            measurementLineNode = nil
+
+            for (index, point) in points.enumerated() {
+                let sphere = SCNSphere(radius: 0.012)
+                sphere.segmentCount = 16
+                let material = SCNMaterial()
+                material.diffuse.contents = index == 0 ? UIColor.systemYellow : UIColor.systemOrange
+                material.emission.contents = material.diffuse.contents
+                material.lightingModel = .constant
+                sphere.firstMaterial = material
+                let marker = SCNNode(geometry: sphere)
+                marker.position = SCNVector3(point.x, point.y, point.z)
+                root.addChildNode(marker)
+                markerNodes.append(marker)
+            }
+
+            guard points.count == 2 else { return }
+            let start = points[0]
+            let end = points[1]
+            let direction = end - start
+            let length = simd_length(direction)
+            guard length > 0.0001 else { return }
+
+            let cylinder = SCNCylinder(radius: 0.0025, height: CGFloat(length))
+            cylinder.radialSegmentCount = 8
+            let lineMaterial = SCNMaterial()
+            lineMaterial.diffuse.contents = UIColor.systemYellow
+            lineMaterial.emission.contents = UIColor.systemYellow
+            lineMaterial.lightingModel = .constant
+            cylinder.firstMaterial = lineMaterial
+            let line = SCNNode(geometry: cylinder)
+            let midpoint = (start + end) * 0.5
+            line.position = SCNVector3(midpoint.x, midpoint.y, midpoint.z)
+
+            let up = SIMD3<Float>(0, 1, 0)
+            let axis = simd_cross(up, simd_normalize(direction))
+            let dot = max(-1, min(1, simd_dot(up, simd_normalize(direction))))
+            if simd_length(axis) < 0.0001 {
+                line.orientation = dot < 0 ? SCNQuaternion(1, 0, 0, 0) : SCNQuaternion(0, 0, 0, 1)
+            } else {
+                let normalizedAxis = simd_normalize(axis)
+                let halfAngle = acos(dot) * 0.5
+                let sine = sin(halfAngle)
+                line.orientation = SCNQuaternion(
+                    normalizedAxis.x * sine,
+                    normalizedAxis.y * sine,
+                    normalizedAxis.z * sine,
+                    cos(halfAngle)
+                )
+            }
+            root.addChildNode(line)
+            measurementLineNode = line
         }
 
         func install(mesh: ScanMesh, in view: SCNView) {

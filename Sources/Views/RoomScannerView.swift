@@ -40,6 +40,8 @@ struct RoomScannerView: View {
                 if let capturedRoom {
                     VStack(spacing: 10) {
                         Text("Помещение распознано").font(.headline)
+                        TextField("Название помещения", text: $roomName)
+                            .textFieldStyle(.roundedBorder)
                         Text("\(capturedRoom.walls.count) стен · \(capturedRoom.doors.count) дверей · \(capturedRoom.windows.count) окон · \(capturedRoom.objects.count) объектов")
                             .font(.caption).foregroundStyle(.secondary)
                         Button("Сохранить помещение и USDZ") { save(capturedRoom) }
