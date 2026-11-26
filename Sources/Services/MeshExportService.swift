@@ -1,6 +1,7 @@
 import Foundation
 import ModelIO
 import SceneKit
+import SceneKit.ModelIO
 import UIKit
 
 enum MeshExportFormat: String, CaseIterable, Identifiable {
